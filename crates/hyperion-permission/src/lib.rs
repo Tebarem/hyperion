@@ -3,10 +3,7 @@ use flecs_ecs::{
     macros::{Component, observer},
     prelude::{Module, flecs},
 };
-use hyperion::{
-    simulation::{Uuid, command::cmd_with},
-    storage::LocalDb,
-};
+use hyperion::{simulation::Uuid, storage::LocalDb};
 use num_derive::{FromPrimitive, ToPrimitive};
 use valence_protocol::packets::play::command_tree_s2c::{Parser, StringArg};
 
@@ -97,27 +94,27 @@ impl Module for PermissionModule {
     fn module(world: &World) {
         world.component::<Group>();
         world.component::<storage::PermissionStorage>();
-        cmd_with(world, "perms", |scope| {
-            scope.literal_with("set", |scope| {
-                scope.argument_with(
-                    "player",
-                    Parser::Entity {
-                        single: true,
-                        only_players: true,
-                    },
-                    |scope| {
-                        scope.argument("group", Parser::String(StringArg::SingleWord));
-                    },
-                );
-            });
-
-            scope.literal_with("get", |scope| {
-                scope.argument("player", Parser::Entity {
-                    single: true,
-                    only_players: true,
-                });
-            });
-        });
+        // cmd_with(world, "perms", |scope| {
+        //     scope.literal_with("set", |scope| {
+        //         scope.argument_with(
+        //             "player",
+        //             Parser::Entity {
+        //                 single: true,
+        //                 only_players: true,
+        //             },
+        //             |scope| {
+        //                 scope.argument("group", Parser::String(StringArg::SingleWord));
+        //             },
+        //         );
+        //     });
+        //
+        //     scope.literal_with("get", |scope| {
+        //         scope.argument("player", Parser::Entity {
+        //             single: true,
+        //             only_players: true,
+        //         });
+        //     });
+        // });
 
         world.get::<&LocalDb>(|db| {
             let storage = storage::PermissionStorage::new(db).unwrap();

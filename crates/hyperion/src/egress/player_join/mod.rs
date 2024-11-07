@@ -32,7 +32,6 @@ use crate::{
     net::{Compose, DataBundle, NetworkStreamRef},
     simulation::{
         Comms, InGameName, Position, Uuid, Yaw,
-        command::{Command, ROOT_COMMAND, get_command_packet},
         metadata::{EntityFlags, MetadataBuilder},
         skin::PlayerSkin,
         util::registry_codec_raw,
@@ -58,7 +57,6 @@ pub fn player_join_world(
     world: &WorldRef<'_>,
     skin: &PlayerSkin,
     system_id: SystemId,
-    root_command: Entity,
     query: &Query<(
         &Uuid,
         &InGameName,
@@ -384,10 +382,6 @@ pub fn player_join_world(
         )
         .context("failed to send team packet")?;
 
-    let command_packet = get_command_packet(world, root_command);
-
-    bundle.add_packet(&command_packet, world)?;
-
     bundle.send(world, io, system_id)?;
 
     info!("{name} joined the world");
@@ -548,27 +542,6 @@ impl Module for PlayerJoinModule {
 
         let system_id = PLAYER_JOINS;
 
-        let root_command = world.entity().set(Command::ROOT);
-
-        #[expect(
-            clippy::unwrap_used,
-            reason = "this is only called once on startup. We mostly care about crashing during \
-                      server execution"
-        )]
-        ROOT_COMMAND.set(root_command.id()).unwrap();
-
-        let hello_command = world
-            .entity()
-            .set(Command::literal("hello"))
-            .child_of_id(root_command);
-
-        world
-            .entity()
-            .set(Command::literal("world"))
-            .child_of_id(hello_command);
-
-        let root_command = root_command.id();
-
         system!(
             "player_joins",
             world,
@@ -631,7 +604,6 @@ impl Module for PlayerJoinModule {
                         &world,
                         &skin,
                         system_id,
-                        root_command,
                         query,
                         crafting_registry,
                         config,

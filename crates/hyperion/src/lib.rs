@@ -75,7 +75,6 @@ pub use common::*;
 use hyperion_crafting::CraftingRegistry;
 pub use valence_ident;
 
-pub use crate::simulation::command::CommandScope;
 use crate::{
     ingress::{GametickSpan, PendingRemove},
     net::{NetworkStreamRef, PacketDecoder, proxy::ReceiveState},

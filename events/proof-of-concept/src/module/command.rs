@@ -6,11 +6,7 @@ use hyperion::{
     egress::player_join::{PlayerListActions, PlayerListEntry, PlayerListS2c},
     net::{Compose, NetworkStreamRef},
     simulation::{
-        Health, IgnMap, InGameName, Position, Uuid,
-        blocks::Blocks,
-        command::{Command, Parser, add_command, cmd_with, get_root_command},
-        event,
-        metadata::EntityFlags,
+        Health, IgnMap, InGameName, Position, Uuid, blocks::Blocks, event, metadata::EntityFlags,
     },
     storage::EventQueue,
     system_registry::SystemId,
@@ -22,13 +18,15 @@ use hyperion::{
         math::IVec3,
         nbt,
         packets::play::{
-            self, PlayerAbilitiesS2c, command_tree_s2c::StringArg,
+            self, PlayerAbilitiesS2c,
+            command_tree_s2c::{Parser, StringArg},
             player_abilities_s2c::PlayerAbilitiesFlags,
             player_position_look_s2c::PlayerPositionLookFlags,
         },
         text::IntoText,
     },
 };
+use hyperion_command::dsl;
 use hyperion_inventory::PlayerInventory;
 use parse::Stat;
 use tracing::{debug, info_span};
@@ -41,70 +39,102 @@ use crate::{
 pub mod parse;
 
 pub fn add_to_tree(world: &World) {
-    let root_command = get_root_command();
+    // let root_command = get_root_command();
+    //
+    // // add to tree
+    // add_command(world, Command::literal("team"), root_command);
+    // add_command(world, Command::literal("zombie"), root_command);
+    // add_command(world, Command::literal("upgrade"), root_command);
+    //
+    // dsl::cmd_with(world, "give", |scope| {
+    //     scope.argument_with(
+    //         "player",
+    //         Parser::Entity {
+    //             single: true,
+    //             only_players: true,
+    //         },
+    //         |scope| {
+    //             scope.argument_with("", Parser::ItemStack, |scope| {
+    //                 scope.argument("count", Parser::Integer {
+    //                     min: Some(1),
+    //                     max: None,
+    //                 });
+    //             });
+    //         },
+    //     );
+    // });
+    //
+    // let speed = add_command(world, Command::literal("speed"), root_command);
+    // add_command(
+    //     world,
+    //     Command::argument("amount", Parser::Float {
+    //         min: Some(0.0),
+    //         max: Some(1024.0),
+    //     }),
+    //     speed,
+    // );
 
-    // add to tree
-    add_command(world, Command::literal("team"), root_command);
-    add_command(world, Command::literal("zombie"), root_command);
-    add_command(world, Command::literal("upgrade"), root_command);
-
-    cmd_with(world, "give", |scope| {
+    dsl::cmd_with(world, "speed", |scope| {
         scope.argument_with(
-            "player",
-            Parser::Entity {
-                single: true,
-                only_players: true,
+            "amount",
+            Parser::Float {
+                min: Some(0.0),
+                max: Some(1024.0),
             },
             |scope| {
-                scope.argument_with("", Parser::ItemStack, |scope| {
-                    scope.argument("count", Parser::Integer {
-                        min: Some(1),
-                        max: None,
-                    });
+                scope.executor(|world, context| {
+                    let amount = *context.get::<f32>("amount")?;
+
+                    let pkt = play::PlayerAbilitiesS2c {
+                        flags: PlayerAbilitiesFlags::default()
+                            .with_allow_flying(true)
+                            .with_flying(true),
+                        flying_speed: amount,
+                        fov_modifier: 0.0,
+                    };
+
+                    world
+                        .entity_from_id(context.id())
+                        .get::<&NetworkStreamRef>(|stream| {
+                            if let Err(e) = compose.unicast(&pkt, *stream, SystemId(999), world) {
+                                error!("failed to send player action response: {e}");
+                            }
+                        });
+                    Ok(())
                 });
             },
         );
     });
 
-    let speed = add_command(world, Command::literal("speed"), root_command);
-    add_command(
-        world,
-        Command::argument("amount", Parser::Float {
-            min: Some(0.0),
-            max: Some(1024.0),
-        }),
-        speed,
-    );
-
-    let stat = add_command(world, Command::literal("stat"), root_command);
-    let stat_child = add_command(
-        world,
-        Command::argument("type", Parser::String(StringArg::SingleWord)),
-        stat,
-    );
-    add_command(
-        world,
-        Command::argument("amount", Parser::Float {
-            min: Some(0.0),
-            max: Some(1024.0),
-        }),
-        stat_child,
-    );
-
-    let health = add_command(world, Command::literal("health"), root_command);
-    add_command(
-        world,
-        Command::argument("amount", Parser::Float {
-            min: Some(0.0),
-            max: None,
-        }),
-        health,
-    );
-
-    add_command(world, Command::literal("tp"), root_command);
-
-    // Add tphere command
-    add_command(world, Command::literal("tphere"), root_command);
+    // let stat = add_command(world, Command::literal("stat"), root_command);
+    // let stat_child = add_command(
+    //     world,
+    //     Command::argument("type", Parser::String(StringArg::SingleWord)),
+    //     stat,
+    // );
+    // add_command(
+    //     world,
+    //     Command::argument("amount", Parser::Float {
+    //         min: Some(0.0),
+    //         max: Some(1024.0),
+    //     }),
+    //     stat_child,
+    // );
+    //
+    // let health = add_command(world, Command::literal("health"), root_command);
+    // add_command(
+    //     world,
+    //     Command::argument("amount", Parser::Float {
+    //         min: Some(0.0),
+    //         max: None,
+    //     }),
+    //     health,
+    // );
+    //
+    // add_command(world, Command::literal("tp"), root_command);
+    //
+    // // Add tphere command
+    // add_command(world, Command::literal("tphere"), root_command);
 }
 
 struct CommandContext<'a> {

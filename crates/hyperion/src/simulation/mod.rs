@@ -9,11 +9,7 @@ use serde::{Deserialize, Serialize};
 use skin::PlayerSkin;
 use uuid;
 
-use crate::{
-    Global, Prev,
-    simulation::{command::Command, metadata::Metadata},
-    storage::ThreadLocalVec,
-};
+use crate::{Global, Prev, simulation::metadata::Metadata, storage::ThreadLocalVec};
 
 pub mod animation;
 pub mod blocks;
@@ -432,7 +428,6 @@ impl Module for SimModule {
         world.component::<Prev<Health>>();
 
         world.component::<PlayerSkin>();
-        world.component::<Command>();
 
         component!(world, EntitySize).opaque_func(meta_ser_stringify_type_display::<EntitySize>);
         component!(world, IVec3 {

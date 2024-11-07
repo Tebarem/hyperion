@@ -1,0 +1,24 @@
+[package]
+name = "hyperion-command"
+version = "0.1.0"
+edition = "2021"
+authors = ["Andrew Gazelka <andrew.gazelka@gmail.com>"]
+readme = "README.md"
+publish = false
+
+[dependencies]
+flecs_ecs.workspace = true
+hyperion.workspace = true
+rustc-hash.workspace = true
+tracing.workspace = true
+once_cell.workspace = true
+valence_protocol.workspace = true
+serde.workspace = true
+snafu.workspace = true
+serde_json.workspace = true
+eyre.workspace = true
+heapless.workspace = true
+bumpalo = "3.16.0"
+
+[lints]
+workspace = true
