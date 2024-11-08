@@ -75,7 +75,7 @@ pub fn add_to_tree(world: &World) {
     // );
 
     dsl::cmd_with(world, "speed", |scope| {
-        scope.argument_with(
+        scope.argument(
             "amount",
             Parser::Float {
                 min: Some(0.0),

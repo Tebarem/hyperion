@@ -43,12 +43,8 @@ pub fn add_command(world: &World, command: Structure, parent: Entity) -> Entity 
     world.entity().set(command).child_of_id(parent).id()
 }
 
-pub fn add_executor(world: &World, executor: ExecutorFn, parent: Entity) -> Entity {
-    world
-        .entity()
-        .set(Executor { executor })
-        .child_of_id(parent)
-        .id()
+pub fn add_executor(world: &World, executor: ExecutorFn, on: Entity) {
+    on.entity_view(world).set(Executor { executor });
 }
 
 /// Entry point for defining commands using the DSL.
@@ -57,7 +53,7 @@ where
     F: FnOnce(&mut CommandScope<'a>),
 {
     let mut scope = CommandScope::new(world);
-    scope.literal_with(name, f);
+    scope.literal(name, f);
 }
 
 pub fn cmd(world: &World, name: &str) {
@@ -81,7 +77,7 @@ impl<'a> CommandScope<'a> {
     }
 
     /// Adds a literal command. Accepts an optional closure to define nested commands.
-    pub fn literal_with<F>(&mut self, name: &str, f: F) -> &mut Self
+    pub fn literal<F>(&mut self, name: &str, f: F) -> &mut Self
     where
         F: FnOnce(&mut Self),
     {
@@ -97,16 +93,8 @@ impl<'a> CommandScope<'a> {
         self.end()
     }
 
-    pub fn literal(&mut self, name: &str) -> &mut Self {
-        self.literal_with(name, |_| {})
-    }
-
-    pub fn argument(&mut self, name: &str, parser: impl Into<Parser>) -> &mut Self {
-        self.argument_with(name, parser, |_| {})
-    }
-
     /// Adds an argument command. Accepts an optional closure to define nested commands.
-    pub fn argument_with(
+    pub fn argument(
         &mut self,
         name: &str,
         parser: impl Into<Parser>,
@@ -127,8 +115,9 @@ impl<'a> CommandScope<'a> {
     }
 
     /// Adds an executor function to the current command.
-    pub fn executor(&self, executor: ExecutorFn) {
+    pub fn executor(&mut self, executor: ExecutorFn) -> &mut Self {
         add_executor(self.world, executor, self.current);
+        self
     }
 
     /// Ends the current command scope, returning to the parent command.

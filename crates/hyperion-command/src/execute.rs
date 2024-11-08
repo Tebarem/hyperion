@@ -6,6 +6,7 @@ use valence_protocol::packets::play::command_tree_s2c::{NodeData, Parser};
 use crate::{get_root_command, CommandContext, Executor, Structure};
 
 pub fn execute(world: &World, entity: Entity, command_raw: &str, bump: &Bump) -> eyre::Result<()> {
+    tracing::trace!("Executing command: {}", command_raw);
     let mut command = command_raw.split_ascii_whitespace();
 
     let mut context = CommandContext::default();
@@ -13,12 +14,29 @@ pub fn execute(world: &World, entity: Entity, command_raw: &str, bump: &Bump) ->
     let mut on = get_root_command().entity_view(world);
 
     loop {
+        let on_structure = on.try_get::<&Structure>(Clone::clone);
+        let on_span = tracing::trace_span!("on", on = ?on_structure);
+        let _enter = on_span.enter();
         // sequential search is probably (hopefully) sufficient assuming there are not over about 64
         // command branches probably about the same speed as a HashMap
 
         let Some(arg) = command.next() else {
-            bail!("command not found");
+            if let Some(executor) =
+                on.try_get::<&Executor>(|executor| unsafe { extend_lifetime(executor) })
+            {
+                tracing::debug!("Found executor, executing command");
+                tracing::info!("Running with context: {context:?}");
+                let executor = executor.executor;
+                return executor(world, entity, &context);
+            }
+
+            tracing::debug!("Expected next command argument but found none");
+            let structure = on.try_get::<&Structure>(Clone::clone);
+            let node_data = structure.map_or(NodeData::Root, |s| s.data);
+            bail!("Expecting a next command since no executor. Current node: {:?}", node_data);
         };
+
+        tracing::trace!("Processing argument: {}", arg);
 
         // todo: this is hacky
         let mut children = heapless::Vec::<_, 64>::new();
@@ -30,22 +48,17 @@ pub fn execute(world: &World, entity: Entity, command_raw: &str, bump: &Bump) ->
         for child in children {
             let child = child.entity_view(world);
 
-            if let Some(executor) =
-                child.try_get::<&Executor>(|executor| unsafe { extend_lifetime(executor) })
-            {
-                let executor = executor.executor;
-                return executor(world, entity, &context);
-            }
-
             let structure =
                 child.get::<&Structure>(|structure| unsafe { extend_lifetime(structure) });
 
             match &structure.data {
                 NodeData::Root => {
+                    tracing::warn!("Encountered unexpected root node");
                     bail!("somehow got a root node");
                 }
                 NodeData::Literal { name } => {
                     if name.eq_ignore_ascii_case(arg) {
+                        tracing::trace!("Matched literal: {}", name);
                         on = child;
                         break;
                     }
@@ -59,40 +72,54 @@ pub fn execute(world: &World, entity: Entity, command_raw: &str, bump: &Bump) ->
                         let Ok(value) = serde_json::from_str::<bool>(arg) else {
                             continue;
                         };
-                        let ptr: &mut dyn std::any::Any = bump.alloc(value);
-                        context.push(name, ptr);
+                        context.push(name, bump, value);
+                        tracing::trace!("Parsed bool argument {}: {}", name, value);
+
+                        on = child;
+                        break;
                     }
                     Parser::Float { .. } => {
                         let Ok(value) = serde_json::from_str::<f32>(arg) else {
                             continue;
                         };
                         let ptr: &mut dyn std::any::Any = bump.alloc(value);
-                        context.push(name, ptr);
+                        context.push(name, bump, value);
+                        tracing::trace!("Parsed float argument {}: {}", name, value);
+                        on = child;
+                        break;
                     }
                     Parser::Double { .. } => {
                         let Ok(value) = serde_json::from_str::<f64>(arg) else {
                             continue;
                         };
-                        let ptr: &mut dyn std::any::Any = bump.alloc(value);
-                        context.push(name, ptr);
+                        context.push(name, bump, value);
+                        tracing::trace!("Parsed double argument {}: {}", name, value);
+                        on = child;
+                        break;
                     }
                     Parser::Integer { .. } => {
                         let Ok(value) = serde_json::from_str::<i32>(arg) else {
                             continue;
                         };
-                        let ptr: &mut dyn std::any::Any = bump.alloc(value);
-                        context.push(name, ptr);
+                        context.push(name, bump, value);
+                        tracing::trace!("Parsed integer argument {}: {}", name, value);
+                        on = child;
+                        break;
                     }
                     Parser::Long { .. } => {
                         let Ok(value) = serde_json::from_str::<i64>(arg) else {
                             continue;
                         };
-                        let ptr: &mut dyn std::any::Any = bump.alloc(value);
-                        context.push(name, ptr);
+                        context.push(name, bump, value);
+                        tracing::trace!("Parsed long argument {}: {}", name, value);
+                        on = child;
+                        break;
                     }
                     Parser::String(_) => {
-                        let ptr: &mut dyn std::any::Any = bump.alloc(arg.to_string());
-                        context.push(name, ptr);
+                        context.push(name, bump, arg.to_string());
+                        tracing::trace!("Parsed string argument {}: {}", name, arg);
+                        on = child;
+                        break;
                     }
                     Parser::Entity { .. }
                     | Parser::GameProfile
@@ -135,7 +162,10 @@ pub fn execute(world: &World, entity: Entity, command_raw: &str, bump: &Bump) ->
                     | Parser::ResourceKey { .. }
                     | Parser::TemplateMirror
                     | Parser::TemplateRotation
-                    | Parser::Uuid => bail!("unimplemented parser"),
+                    | Parser::Uuid => {
+                        tracing::debug!("Encountered unimplemented parser: {:?}", parser);
+                        bail!("unimplemented parser");
+                    }
                 },
             }
         }

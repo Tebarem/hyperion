@@ -19,6 +19,16 @@ pub struct ChatMessage<'a> {
     pub by: Entity,
 }
 
+
+
+// hyperion-combat
+
+
+
+
+
+
+
 /// Represents an attack action by an entity in the game.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct AttackEntity {

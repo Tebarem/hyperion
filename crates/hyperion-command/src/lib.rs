@@ -1,5 +1,9 @@
 #![feature(downcast_unchecked)]
+#![feature(ptr_metadata)]
 
+use std::{any::Any, fmt::Debug, ptr::DynMetadata};
+
+use bumpalo::Bump;
 use flecs_ecs::{
     core::{Entity, EntityViewGet, IdOperations, World},
     macros::Component,
@@ -36,13 +40,36 @@ pub mod dsl;
 #[derive(Default)]
 pub struct CommandContext<'a, 'b> {
     names: heapless::Vec<&'a str, 64>,
-    data: heapless::Vec<&'b dyn std::any::Any, 64>,
+
+    // todo: use poitner metadata so data is not repeated twice
+    data: heapless::Vec<&'b dyn Any, 64>,
+    dbg: heapless::Vec<&'b dyn Debug, 64>,
+}
+
+impl std::fmt::Debug for CommandContext<'_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut map = f.debug_map();
+
+        for i in 0..self.names.len() {
+            let name = self.names[i];
+            let dbg = self.dbg[i];
+            map.entry(&name, &dbg);
+        }
+
+        map.finish()
+    }
 }
 
 impl<'a, 'b> CommandContext<'a, 'b> {
-    fn push(&mut self, name: &'a str, data: &'b dyn std::any::Any) {
+    fn push<T: 'static + Debug + Clone>(&mut self, name: &'a str, bump: &'b Bump, data: T) {
+
+        let alloc: &mut dyn Any = bump.alloc(data.clone());
+        let dbg_meta: &'b dyn Debug = bump.alloc(data);
+
+        
         self.names.push(name).unwrap();
-        self.data.push(data).unwrap();
+        self.data.push(alloc).unwrap();
+        self.dbg.push(dbg_meta).unwrap();
     }
 
     pub fn get<'c: 'b, 'd, T: 'static>(
@@ -53,15 +80,17 @@ impl<'a, 'b> CommandContext<'a, 'b> {
             .names
             .iter()
             .enumerate()
-            .find_map(|(idx, name)| name.eq_ignore_ascii_case(name).then_some(idx))
+            .find_map(|(idx, elem_name)| elem_name.eq_ignore_ascii_case(name).then_some(idx))
             .ok_or(CommandContextError::ArgumentNotFound { name })?;
+        
+        tracing::trace!("Getting argument {name} at index {index}");
 
         let result = *self.data.get(index).unwrap();
         Ok(unsafe { result.downcast_ref_unchecked() })
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone, Debug)]
 pub struct Structure {
     data: NodeData,
 }
@@ -85,7 +114,8 @@ impl Module for HyperionCommandModule {
         world.component::<Executor>();
         world.component::<Help>();
 
-        let root_command = world.entity();
+        let root_command = world.entity().set(Structure::ROOT);
+
         ROOT_COMMAND.set(root_command.id()).unwrap();
     }
 }
@@ -127,15 +157,47 @@ impl Structure {
 
 const MAX_DEPTH: usize = 64;
 
-pub fn get_command_packet(
-    world: &World,
-    root: Entity,
-) -> valence_protocol::packets::play::CommandTreeS2c {
+pub fn print_command_tree(world: &World) {
+    fn print_node(world: &World, entity: Entity, depth: usize) {
+        if depth >= MAX_DEPTH {
+            warn!("command tree depth exceeded. Skipping subtree. Circular reference?");
+            return;
+        }
+
+        let indent = "  ".repeat(depth);
+
+        let entity = entity.entity_view(world);
+
+        let hash_executor = entity.has::<Executor>();
+
+        entity.try_get::<&Structure>(|structure| {
+            let executor_marker = if hash_executor { "*" } else { "" };
+            match &structure.data {
+                NodeData::Root => println!("{indent}ROOT{executor_marker}"),
+                NodeData::Literal { name } => println!("{indent}{name}{executor_marker}"),
+                NodeData::Argument { name, parser, .. } => {
+                    println!("{indent}<{name}: {parser:?}>{executor_marker}");
+                }
+            }
+
+            world.entity_from_id(entity).each_child(|child| {
+                print_node(world, child.id(), depth + 1);
+            });
+        });
+    }
+
+    print_node(world, get_root_command(), 0);
+}
+
+pub fn get_command_packet(world: &World) -> valence_protocol::packets::play::CommandTreeS2c {
     struct StackElement {
         depth: usize,
         ptr: usize,
         entity: Entity,
     }
+
+    let root = get_root_command();
+
 
     let mut commands = Vec::new();
 
@@ -164,7 +226,7 @@ pub fn get_command_packet(
         }
 
         world.entity_from_id(entity).each_child(|child| {
-            child.get::<&Structure>(|command| {
+            child.try_get::<&Structure>(|command| {
                 let ptr = commands.len();
 
                 commands.push(Node {
@@ -203,7 +265,7 @@ mod tests {
         world.component::<Structure>();
         let root = world.entity();
 
-        let packet = get_command_packet(&world, root.id());
+        let packet = get_command_packet(&world);
 
         assert_eq!(packet.commands.len(), 1);
         assert_eq!(packet.root_index, VarInt(0));
@@ -226,7 +288,7 @@ mod tests {
             })
             .child_of_id(root);
 
-        let packet = get_command_packet(&world, root.id());
+        let packet = get_command_packet(&world);
 
         assert_eq!(packet.commands.len(), 2);
         assert_eq!(packet.root_index, VarInt(0));
@@ -262,7 +324,7 @@ mod tests {
             })
             .child_of_id(parent);
 
-        let packet = get_command_packet(&world, root.id());
+        let packet = get_command_packet(&world);
 
         assert_eq!(packet.commands.len(), 3);
         assert_eq!(packet.root_index, VarInt(0));
@@ -296,7 +358,7 @@ mod tests {
             parent = child;
         }
 
-        let packet = get_command_packet(&world, root.id());
+        let packet = get_command_packet(&world);
 
         assert_eq!(packet.commands.len(), MAX_DEPTH + 1);
     }
