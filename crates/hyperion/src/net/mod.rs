@@ -4,7 +4,7 @@ use std::{
     cell::{Cell, RefCell},
     fmt::Debug,
 };
-
+use std::cell::UnsafeCell;
 use bumpalo::Bump;
 use byteorder::WriteBytesExt;
 use bytes::{Bytes, BytesMut};
@@ -87,7 +87,7 @@ pub struct Compose {
     scratch: Scratches,
     global: Global,
     io_buf: IoBuf,
-    pub bump: ThreadLocal<Bump>,
+    pub bump: ThreadLocal<UnsafeCell<Bump>>,
 }
 
 #[must_use]

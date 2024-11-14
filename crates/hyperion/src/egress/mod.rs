@@ -21,6 +21,7 @@ use sync_entity_state::EntityStateSyncModule;
 use crate::{
     net::NetworkStreamRef,
     simulation::{ChunkPosition, blocks::Blocks},
+    storage::Events,
     system_registry::SystemId,
 };
 
@@ -163,19 +164,33 @@ impl Module for EgressModule {
             }
         });
 
+        system!("clear_events", world, &Events($))
+            .kind_id(pipeline)
+            .multi_threaded()
+            .each_iter(move |it, _, events| {
+                let world = it.world();
+                let span = info_span!("clear_events");
+                let _enter = span.enter();
+
+                events.clear_on(&world);
+            });
+
         system!(
             "clear_bump",
             world,
-            &mut Compose($),
+            &Compose($),
         )
         .kind_id(pipeline)
-        .each(move |compose| {
+        .multi_threaded()
+        .each_iter(move |it, _, compose| {
+            let world = it.world();
             let span = info_span!("clear_bump");
             let _enter = span.enter();
 
-            for bump in &mut compose.bump {
-                bump.reset();
-            }
+            let bump = compose.bump.get(&world);
+            let bump = unsafe { &mut *bump.get() };
+            bump.reset();
         });
+
     }
 }

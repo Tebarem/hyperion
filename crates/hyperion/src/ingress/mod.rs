@@ -509,6 +509,7 @@ impl Module for IngressModule {
                 let bump = compose.bump.get(&world);
 
                 loop {
+                    let bump = unsafe { &*bump.get() };
                     let frame = match decoder.try_next_packet(bump) {
                         Ok(frame) => frame,
                         Err(e) => {

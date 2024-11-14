@@ -81,9 +81,16 @@ impl<T> ThreadLocalVec<T> {
     pub fn len(&mut self) -> usize {
         self.inner
             .iter_mut()
-            .map(std::cell::SyncUnsafeCell::get_mut)
+            .map(SyncUnsafeCell::get_mut)
             .map(|x| x.len())
             .sum()
+    }
+
+    pub fn clear(&self, world: &World) {
+        let inner = self.inner.get(world);
+
+        let inner = unsafe { &mut *inner.get() };
+        inner.clear();
     }
 }
 
@@ -148,6 +155,13 @@ impl<T> ThreadLocalVec<T> {
         Self {
             inner: ThreadLocal::new_with(|_| SyncUnsafeCell::new(Vec::with_capacity(n))),
         }
+    }
+
+    pub fn drain_local(&self, world: &World) -> impl Iterator<Item = T> + '_ {
+        let inner = self.inner.get(world);
+
+        let inner = unsafe { &mut *inner.get() };
+        inner.drain(..)
     }
 
     pub fn drain(&mut self) -> impl Iterator<Item = T> + '_ {

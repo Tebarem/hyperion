@@ -177,11 +177,18 @@ impl EventsInput {
     /// Generates the complete expanded code for the macro
     fn generate(&self) -> proc_macro2::TokenStream {
         // Generate all fields and initializers
+
+        let field_idents = self.events.iter().map(|event|  {
+            let name = event.ident.to_string().to_case(Case::Snake);
+            format_ident!("{name}")
+        });
+        
         let fields = self.events.iter().map(EventType::generate_field);
         let initializers = self.events.iter().map(EventType::generate_initializer);
 
         // Generate all trait implementations
         let impls = self.events.iter().map(EventType::generate_impls);
+
 
         // Generate the Events struct
         let events_struct = quote! {
@@ -195,6 +202,18 @@ impl EventsInput {
                 pub fn initialize(world: &World) -> Self {
                     Self {
                         #(#initializers)*
+                    }
+                }
+            }
+            
+            impl Events {
+                pub fn clear_on(&self, world: &World) {
+                    unsafe {
+                        #(
+                            let ptr = self.#field_idents.0;
+                            let ptr = &*ptr;
+                            ptr.clear(world);
+                        )*
                     }
                 }
             }
